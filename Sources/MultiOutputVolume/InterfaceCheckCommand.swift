@@ -44,7 +44,7 @@ enum InterfaceCheckCommand {
         check(
             "status icon uses one pale maximum-volume layer",
             StatusBarIcon.maximumSymbolName == "speaker.wave.3"
-                && StatusBarIcon.maximumLayerOpacity <= 0.15,
+                && StatusBarIcon.maximumLayerOpacity <= 0.1,
             failures: &failures
         )
         check(
@@ -80,6 +80,11 @@ enum InterfaceCheckCommand {
         check(
             "resting slider thumb is a horizontal capsule",
             GlassVolumeSlider.restingThumbWidth > GlassVolumeSlider.restingThumbHeight,
+            failures: &failures
+        )
+        check(
+            "resting slider thumb uses a light fill",
+            GlassVolumeSlider.restingThumbFillOpacity >= 0.9,
             failures: &failures
         )
         check(

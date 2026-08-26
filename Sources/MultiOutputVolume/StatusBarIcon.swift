@@ -5,7 +5,7 @@ enum StatusBarIcon {
     static let size = NSSize(width: 26, height: 18)
     static let maximumSymbolName = "speaker.wave.3"
     static let currentSymbolName = "speaker.wave.3.fill"
-    static let maximumLayerOpacity: CGFloat = 0.14
+    static let maximumLayerOpacity: CGFloat = 0.1
     static let currentLayerPasses = 2
 
     static func make(volume: Float, isMuted: Bool) -> NSImage {

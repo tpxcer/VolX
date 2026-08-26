@@ -6,6 +6,7 @@ struct GlassVolumeSlider: View {
     static let expandedThumbHeight: CGFloat = 22
     static let restingThumbWidth: CGFloat = 20
     static let restingThumbHeight: CGFloat = 16
+    static let restingThumbFillOpacity: Double = 0.94
     static let refractedTrackScale: CGFloat = 1.55
     static let draggingGlassOpacity: Double = 0.56
 
@@ -141,10 +142,10 @@ struct GlassVolumeSlider: View {
             }
         } else {
             Capsule()
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(Color.white.opacity(Self.restingThumbFillOpacity))
                 .overlay {
                     Capsule()
-                        .stroke(Color(nsColor: .separatorColor).opacity(0.70), lineWidth: 0.5)
+                        .stroke(Color.black.opacity(0.12), lineWidth: 0.5)
                 }
                 .shadow(color: .black.opacity(0.18), radius: 1.5, y: 0.75)
         }
