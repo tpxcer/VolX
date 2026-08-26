@@ -2,6 +2,15 @@
 
 一个本地 macOS 菜单栏小工具，用来统一控制多个输出设备的音量。
 
+## 下载
+
+从 [GitHub Releases](https://github.com/tpxcer/VolX/releases/latest) 下载：
+
+- `VolX-0.3.3-arm64.dmg`：磁盘映像安装包。
+- `VolX-0.3.3-arm64.zip`：压缩版 App。
+
+当前安装包为 Apple 芯片 `arm64` 版本，要求 macOS 14 或更高版本。App 使用 ad-hoc 临时签名，尚未使用 Developer ID 签名或通过 Apple 公证；首次打开时可能需要在 Finder 中右键 VolX 并选择“打开”。
+
 当前目标设备：
 
 - `BenQ MA270UP`：通过 `m1ddc` 走 DDC/CI 控制显示器内部音量。
@@ -31,6 +40,12 @@
 ```bash
 scripts/build-app.sh
 open .build/VolX.app
+```
+
+Release 优化构建：
+
+```bash
+CONFIGURATION=release scripts/build-app.sh
 ```
 
 ## 安装到应用程序
