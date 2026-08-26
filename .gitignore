@@ -1,0 +1,9 @@
+.DS_Store
+.build/
+.swiftpm/
+*.log
+
+# Local development notes
+findings.md
+progress.md
+task_plan.md

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <key>CFBundleExecutable</key>
+    <string>MultiOutputVolume</string>
+    <key>CFBundleDisplayName</key>
+    <string>VolX</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.tpxcer.MultiOutputVolume</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>VolX</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+	<string>0.3.3</string>
+    <key>CFBundleVersion</key>
+	<string>6</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>14.0</string>
+    <key>LSUIElement</key>
+    <true/>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>NSHumanReadableCopyright</key>
+    <string>Open source local utility.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>用于打开系统声音设置。</string>
+    <key>NSInputMonitoringUsageDescription</key>
+    <string>用于接管 F10、F11、F12 音量快捷键。</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>用于发现同一网络中的 AirPlay 音频输出设备。</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_airplay._tcp</string>
+    </array>
+</dict>
+</plist>
