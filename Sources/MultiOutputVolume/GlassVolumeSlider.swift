@@ -4,13 +4,15 @@ struct GlassVolumeSlider: View {
     static let controlHeight: CGFloat = 28
     static let expandedThumbWidth: CGFloat = 28
     static let expandedThumbHeight: CGFloat = 22
+    static let restingThumbWidth: CGFloat = 20
+    static let restingThumbHeight: CGFloat = 16
+    static let refractedTrackScale: CGFloat = 1.55
+    static let draggingGlassOpacity: Double = 0.56
 
     @Binding var value: Double
     @Binding var isDragging: Bool
 
     private let trackHeight: CGFloat = 6
-    private let restingThumbDiameter: CGFloat = 16
-
     var body: some View {
         GeometryReader { geometry in
             let width = max(geometry.size.width, Self.expandedThumbWidth)
@@ -20,23 +22,13 @@ struct GlassVolumeSlider: View {
                 track(width: width, position: position)
                 thumb
                     .frame(
-                        width: isDragging ? Self.expandedThumbWidth : restingThumbDiameter,
-                        height: isDragging ? Self.expandedThumbHeight : restingThumbDiameter
+                        width: isDragging ? Self.expandedThumbWidth : Self.restingThumbWidth,
+                        height: isDragging ? Self.expandedThumbHeight : Self.restingThumbHeight
                     )
                     .position(x: position, y: Self.controlHeight / 2)
                 if isDragging {
-                    track(width: width, position: position)
-                        .opacity(0.88)
-                        .mask {
-                            Capsule()
-                                .frame(
-                                    width: Self.expandedThumbWidth,
-                                    height: Self.expandedThumbHeight
-                                )
-                                .position(x: position, y: Self.controlHeight / 2)
-                        }
-                    Capsule()
-                        .stroke(Color.primary.opacity(0.24), lineWidth: 0.65)
+                    refractedTrack(width: width, position: position)
+                    glassEdge
                         .frame(
                             width: Self.expandedThumbWidth,
                             height: Self.expandedThumbHeight
@@ -99,6 +91,40 @@ struct GlassVolumeSlider: View {
         .frame(width: width, height: Self.controlHeight, alignment: .leading)
     }
 
+    private func refractedTrack(width: CGFloat, position: CGFloat) -> some View {
+        let inset = Self.expandedThumbWidth / 2
+        let trackWidth = max(width - Self.expandedThumbWidth, 0)
+        let filledWidth = max(position - inset, 0)
+
+        return ZStack(alignment: .leading) {
+            Capsule()
+                .fill(Color.primary.opacity(0.18))
+                .frame(width: trackWidth, height: trackHeight)
+                .offset(x: inset)
+            Capsule()
+                .fill(Color.accentColor.opacity(0.96))
+                .frame(width: filledWidth, height: trackHeight)
+                .offset(x: inset)
+        }
+            .frame(width: width, height: Self.controlHeight, alignment: .leading)
+            .scaleEffect(
+                x: 1.06,
+                y: Self.refractedTrackScale,
+                anchor: UnitPoint(x: position / max(width, 1), y: 0.5)
+            )
+            .offset(x: 0.65, y: 0.35)
+            .opacity(0.86)
+            .mask {
+                Capsule()
+                    .inset(by: 1.1)
+                    .frame(
+                        width: Self.expandedThumbWidth,
+                        height: Self.expandedThumbHeight
+                    )
+                    .position(x: position, y: Self.controlHeight / 2)
+            }
+    }
+
     @ViewBuilder
     private var thumb: some View {
         if isDragging {
@@ -106,25 +132,43 @@ struct GlassVolumeSlider: View {
                 Capsule()
                     .fill(.clear)
                     .glassEffect(.clear.interactive(), in: Capsule())
-                    .shadow(color: .black.opacity(0.18), radius: 2.25, y: 1)
+                    .opacity(Self.draggingGlassOpacity)
+                    .shadow(color: .black.opacity(0.20), radius: 2.4, y: 1)
             } else {
                 Capsule()
                     .fill(.ultraThinMaterial)
-                    .overlay {
-                        Capsule()
-                            .stroke(Color.white.opacity(0.58), lineWidth: 0.75)
-                    }
                     .shadow(color: .black.opacity(0.22), radius: 2.5, y: 1)
             }
         } else {
-            Circle()
+            Capsule()
                 .fill(Color(nsColor: .controlBackgroundColor))
                 .overlay {
-                    Circle()
+                    Capsule()
                         .stroke(Color(nsColor: .separatorColor).opacity(0.70), lineWidth: 0.5)
                 }
                 .shadow(color: .black.opacity(0.18), radius: 1.5, y: 0.75)
         }
+    }
+
+    private var glassEdge: some View {
+        Capsule()
+            .stroke(
+                LinearGradient(
+                    colors: [
+                        .white.opacity(0.86),
+                        .primary.opacity(0.28),
+                        .white.opacity(0.52)
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ),
+                lineWidth: 0.8
+            )
+            .overlay {
+                Capsule()
+                    .inset(by: 1.2)
+                    .stroke(.white.opacity(0.24), lineWidth: 0.45)
+            }
     }
 
     static func value(at x: CGFloat, width: CGFloat) -> Double {

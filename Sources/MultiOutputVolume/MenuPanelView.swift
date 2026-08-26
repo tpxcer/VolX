@@ -2,6 +2,7 @@ import SwiftUI
 
 struct MenuPanelView: View {
     static let panelWidth: CGFloat = 308
+    static let panelTitle = "VolX"
     private static let baseHeight: CGFloat = 134
     private static let rowHeight: CGFloat = 32
     private static let maximumVisibleRows = 6
@@ -47,7 +48,7 @@ struct MenuPanelView: View {
     }
 
     private var header: some View {
-        Text("声音")
+        Text(Self.panelTitle)
             .font(.system(size: 15, weight: .semibold))
             .frame(height: 22, alignment: .leading)
             .accessibilityAddTraits(.isHeader)

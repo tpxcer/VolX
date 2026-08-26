@@ -37,16 +37,59 @@ enum InterfaceCheckCommand {
         check("menu native five-row height", abs(MenuPanelView.panelHeight(outputRowCount: 5) - 294) <= 1, failures: &failures)
         check("menu glass", containsNativeGlassView(in: menu), failures: &failures)
 
-        let statusIcon = StatusBarIcon.make()
+        let statusIcon = StatusBarIcon.make(volume: 0.5, isMuted: false)
         check("status icon is a template image", statusIcon.isTemplate, failures: &failures)
-        check("status icon width", abs(statusIcon.size.width - 20) <= 0.1, failures: &failures)
+        check("status icon width", abs(statusIcon.size.width - 26) <= 0.1, failures: &failures)
         check("status icon height", abs(statusIcon.size.height - 18) <= 0.1, failures: &failures)
+        check(
+            "status icon uses one pale maximum-volume layer",
+            StatusBarIcon.maximumSymbolName == "speaker.wave.3"
+                && StatusBarIcon.maximumLayerOpacity <= 0.15,
+            failures: &failures
+        )
+        check(
+            "status icon uses variable current-volume layer",
+            StatusBarIcon.currentSymbolName == "speaker.wave.3.fill"
+                && StatusBarIcon.currentLayerPasses >= 2
+                && StatusBarIcon.normalizedLevel(volume: 0.15, isMuted: false)
+                    < StatusBarIcon.normalizedLevel(volume: 0.85, isMuted: false),
+            failures: &failures
+        )
+        check(
+            "status icon keeps fixed content geometry",
+            StatusBarIcon.contentRect(
+                in: NSRect(origin: .zero, size: StatusBarIcon.size),
+                sourceSize: NSSize(width: 26, height: 18)
+            ).size == StatusBarIcon.size,
+            failures: &failures
+        )
+        check(
+            "status icon mute clears current volume layer",
+            StatusBarIcon.normalizedLevel(volume: 0.85, isMuted: true) == 0,
+            failures: &failures
+        )
+        check("menu title uses app name", MenuPanelView.panelTitle == "VolX", failures: &failures)
 
         let sliderWidth: CGFloat = 220
         let sliderInset = GlassVolumeSlider.expandedThumbWidth / 2
         check(
             "dragging slider thumb is a horizontal capsule",
             GlassVolumeSlider.expandedThumbWidth > GlassVolumeSlider.expandedThumbHeight,
+            failures: &failures
+        )
+        check(
+            "resting slider thumb is a horizontal capsule",
+            GlassVolumeSlider.restingThumbWidth > GlassVolumeSlider.restingThumbHeight,
+            failures: &failures
+        )
+        check(
+            "dragging slider glass stays transparent",
+            GlassVolumeSlider.draggingGlassOpacity <= 0.6,
+            failures: &failures
+        )
+        check(
+            "dragging slider magnifies track through glass",
+            GlassVolumeSlider.refractedTrackScale > 1,
             failures: &failures
         )
         check(

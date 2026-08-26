@@ -2,70 +2,80 @@ import AppKit
 
 @MainActor
 enum StatusBarIcon {
-    static let size = NSSize(width: 20, height: 18)
+    static let size = NSSize(width: 26, height: 18)
+    static let maximumSymbolName = "speaker.wave.3"
+    static let currentSymbolName = "speaker.wave.3.fill"
+    static let maximumLayerOpacity: CGFloat = 0.14
+    static let currentLayerPasses = 2
 
-    static func make() -> NSImage {
-        let image = NSImage(size: size, flipped: false) { _ in
-            guard let context = NSGraphicsContext.current?.cgContext else {
-                return false
-            }
+    static func make(volume: Float, isMuted: Bool) -> NSImage {
+        let level = normalizedLevel(volume: volume, isMuted: isMuted)
+        let configuration = NSImage.SymbolConfiguration(pointSize: 15.5, weight: .regular)
+        let maximumSymbol = NSImage(
+            systemSymbolName: maximumSymbolName,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(configuration)
+        let currentSymbol = NSImage(
+            systemSymbolName: currentSymbolName,
+            variableValue: level,
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(configuration)
 
-            context.setAllowsAntialiasing(true)
-            context.setShouldAntialias(true)
-            context.translateBy(x: -0.7, y: -0.9)
-            context.scaleBy(x: 1.15, y: 1.1)
-            context.setFillColor(NSColor.black.cgColor)
-            context.setStrokeColor(NSColor.black.cgColor)
-            context.setLineCap(.round)
-            context.setLineJoin(.round)
-
-            let speaker = CGMutablePath()
-            speaker.move(to: CGPoint(x: 0.8, y: 6.4))
-            speaker.addLine(to: CGPoint(x: 3.8, y: 6.4))
-            speaker.addLine(to: CGPoint(x: 8.5, y: 2.9))
-            speaker.addLine(to: CGPoint(x: 8.5, y: 15.1))
-            speaker.addLine(to: CGPoint(x: 3.8, y: 11.6))
-            speaker.addLine(to: CGPoint(x: 0.8, y: 11.6))
-            speaker.closeSubpath()
-            context.addPath(speaker)
-            context.fillPath()
-
-            context.addArc(
-                center: CGPoint(x: 8.3, y: 9),
-                radius: 3.4,
-                startAngle: -0.72,
-                endAngle: 0.72,
-                clockwise: false
+        let image = NSImage(size: size, flipped: false) { bounds in
+            guard let maximumSymbol, let currentSymbol else { return false }
+            let targetRect = contentRect(in: bounds, sourceSize: maximumSymbol.size)
+            maximumSymbol.draw(
+                in: targetRect,
+                from: .zero,
+                operation: .sourceOver,
+                fraction: maximumLayerOpacity,
+                respectFlipped: true,
+                hints: nil
             )
-            context.setLineWidth(1.2)
-            context.strokePath()
-
-            func drawBranch(to end: CGPoint, control1: CGPoint, control2: CGPoint) {
-                let path = CGMutablePath()
-                path.move(to: CGPoint(x: 10.4, y: 9))
-                path.addCurve(to: end, control1: control1, control2: control2)
-                context.addPath(path)
-                context.setLineWidth(1.7)
-                context.strokePath()
-                context.fillEllipse(
-                    in: CGRect(x: end.x - 1.15, y: end.y - 1.15, width: 2.3, height: 2.3)
+            for _ in 0..<currentLayerPasses {
+                currentSymbol.draw(
+                    in: targetRect,
+                    from: .zero,
+                    operation: .sourceOver,
+                    fraction: 1,
+                    respectFlipped: true,
+                    hints: nil
                 )
             }
-
-            drawBranch(
-                to: CGPoint(x: 16.3, y: 13.5),
-                control1: CGPoint(x: 12.7, y: 9.1),
-                control2: CGPoint(x: 13.8, y: 13.5)
-            )
-            drawBranch(
-                to: CGPoint(x: 16.3, y: 4.5),
-                control1: CGPoint(x: 12.7, y: 8.9),
-                control2: CGPoint(x: 13.8, y: 4.5)
-            )
+            if isMuted {
+                drawMuteSlash(in: targetRect)
+            }
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "VolX 统一音量"
+        image.accessibilityDescription = isMuted
+            ? "VolX 已静音"
+            : "VolX 音量 \(Int((volume * 100).rounded()))%"
         return image
+    }
+
+    static func normalizedLevel(volume: Float, isMuted: Bool) -> Double {
+        isMuted ? 0 : Double(min(max(volume, 0), 1))
+    }
+
+    static func contentRect(in bounds: NSRect, sourceSize: NSSize) -> NSRect {
+        return NSRect(
+            x: bounds.midX - sourceSize.width / 2,
+            y: bounds.midY - sourceSize.height / 2,
+            width: sourceSize.width,
+            height: sourceSize.height
+        )
+    }
+
+    private static func drawMuteSlash(in rect: NSRect) {
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        context.saveGState()
+        context.setStrokeColor(NSColor.black.cgColor)
+        context.setLineWidth(1.7)
+        context.setLineCap(.round)
+        context.move(to: CGPoint(x: rect.minX + 5.2, y: rect.maxY - 1.2))
+        context.addLine(to: CGPoint(x: rect.maxX - 3.2, y: rect.minY + 1.2))
+        context.strokePath()
+        context.restoreGState()
     }
 }

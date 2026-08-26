@@ -6,7 +6,6 @@ import SwiftUI
 final class StatusBarController {
     private let model: VolumeModel
     private let statusItem: NSStatusItem
-    private let statusImage: NSImage
     private var panel: NSPanel?
     private var outsideGlobalClickMonitor: Any?
     private var outsideLocalClickMonitor: Any?
@@ -15,7 +14,6 @@ final class StatusBarController {
     init(model: VolumeModel) {
         self.model = model
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        self.statusImage = StatusBarIcon.make()
         configureStatusItem()
         model.hudAnchorProvider = { [weak self] in
             self?.statusItemImageFrameOnScreen()
@@ -25,7 +23,8 @@ final class StatusBarController {
 
     private func configureStatusItem() {
         guard let button = statusItem.button else { return }
-        button.image = statusImage
+        button.image = StatusBarIcon.make(volume: model.volume, isMuted: model.isMuted)
+        button.imageScaling = .scaleNone
         button.title = ""
         button.setAccessibilityTitle("VolX")
         button.setAccessibilityLabel("VolX 统一音量")
@@ -52,7 +51,7 @@ final class StatusBarController {
 
     private func refreshIcon() {
         guard let button = statusItem.button else { return }
-        button.image = statusImage
+        button.image = StatusBarIcon.make(volume: model.volume, isMuted: model.isMuted)
         button.toolTip = "\(model.controlTitle) \(Int((model.volume * 100).rounded()))%"
         button.setAccessibilityValue(button.toolTip)
     }
