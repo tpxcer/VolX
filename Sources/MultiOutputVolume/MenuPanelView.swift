@@ -37,7 +37,7 @@ struct MenuPanelView: View {
             alignment: .top
         )
         .background {
-            GlassBackground(material: .popover)
+            GlassBackground(material: .popover, cornerRadius: 16)
         }
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {

@@ -6,8 +6,8 @@
 
 从 [GitHub Releases](https://github.com/tpxcer/VolX/releases/latest) 下载：
 
-- `VolX-0.3.3-arm64.dmg`：磁盘映像安装包。
-- `VolX-0.3.3-arm64.zip`：压缩版 App。
+- `VolX-0.3.4-arm64.dmg`：磁盘映像安装包。
+- `VolX-0.3.4-arm64.zip`：压缩版 App。
 
 当前安装包为 Apple 芯片 `arm64` 版本，要求 macOS 14 或更高版本。App 使用 ad-hoc 临时签名，尚未使用 Developer ID 签名或通过 Apple 公证；首次打开时可能需要在 Finder 中右键 VolX 并选择“打开”。
 

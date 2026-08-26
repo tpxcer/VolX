@@ -6,13 +6,29 @@ enum InterfaceCheckCommand {
     static func run() -> Bool {
         var failures = 0
 
-        let hud = NSHostingView(
-            rootView: VolumeHUDView(title: "显示器 + 音箱", volume: 0.35, isMuted: false)
+        let hud = VolumeHUDController.makeContentView(
+            title: "显示器 + 音箱",
+            volume: 0.35,
+            isMuted: false
         )
         hud.layoutSubtreeIfNeeded()
         check("HUD width", abs(hud.fittingSize.width - 300) <= 1, failures: &failures)
         check("HUD height", abs(hud.fittingSize.height - 72) <= 1, failures: &failures)
         check("HUD glass", containsNativeGlassView(in: hud), failures: &failures)
+        check(
+            "HUD host clips glass corners",
+            hud.layer?.masksToBounds == true
+                && abs((hud.layer?.cornerRadius ?? 0) - VolumeHUDController.cornerRadius) <= 0.1,
+            failures: &failures
+        )
+        check(
+            "HUD native glass clips corners",
+            nativeGlassViews(in: hud).allSatisfy {
+                $0.layer?.masksToBounds == true
+                    && abs(($0.layer?.cornerRadius ?? 0) - VolumeHUDController.cornerRadius) <= 0.1
+            },
+            failures: &failures
+        )
 
         let menu = NSHostingView(rootView: MenuPanelView(model: VolumeModel()))
         menu.layoutSubtreeIfNeeded()
@@ -173,5 +189,15 @@ enum InterfaceCheckCommand {
             return true
         }
         return view.subviews.contains { containsNativeGlassView(in: $0) }
+    }
+
+    private static func nativeGlassViews(in view: NSView) -> [NSView] {
+        var matches: [NSView] = []
+        if #available(macOS 26.0, *), view is NSGlassEffectView {
+            matches.append(view)
+        } else if view is NSVisualEffectView {
+            matches.append(view)
+        }
+        return matches + view.subviews.flatMap { nativeGlassViews(in: $0) }
     }
 }

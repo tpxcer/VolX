@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 final class VolumeHUDController {
+    static let cornerRadius: CGFloat = 14
     private let panelSize = NSSize(width: 300, height: 72)
     private var panel: NSPanel?
     private var dismissWorkItem: DispatchWorkItem?
@@ -10,7 +11,7 @@ final class VolumeHUDController {
     func show(title: String, volume: Float, isMuted: Bool, anchorRect: NSRect?) {
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        panel.contentView = NSHostingView(rootView: VolumeHUDView(title: title, volume: volume, isMuted: isMuted))
+        panel.contentView = Self.makeContentView(title: title, volume: volume, isMuted: isMuted)
         position(panel, anchorRect: anchorRect)
         panel.alphaValue = 1
         panel.orderFrontRegardless()
@@ -37,6 +38,17 @@ final class VolumeHUDController {
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         panel.ignoresMouseEvents = true
         return panel
+    }
+
+    static func makeContentView(title: String, volume: Float, isMuted: Bool) -> NSView {
+        let view = NSHostingView(
+            rootView: VolumeHUDView(title: title, volume: volume, isMuted: isMuted)
+        )
+        view.wantsLayer = true
+        view.layer?.cornerRadius = cornerRadius
+        view.layer?.cornerCurve = .continuous
+        view.layer?.masksToBounds = true
+        return view
     }
 
     private func position(_ panel: NSPanel, anchorRect: NSRect?) {
@@ -115,11 +127,11 @@ struct VolumeHUDView: View {
         .padding(.vertical, 10)
         .frame(width: 300, height: 72)
         .background {
-            GlassBackground(material: .hudWindow)
+            GlassBackground(material: .hudWindow, cornerRadius: VolumeHUDController.cornerRadius)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: VolumeHUDController.cornerRadius, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: VolumeHUDController.cornerRadius, style: .continuous)
                 .stroke(.white.opacity(0.3), lineWidth: 0.75)
         }
     }
