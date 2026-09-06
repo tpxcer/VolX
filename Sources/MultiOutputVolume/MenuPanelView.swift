@@ -9,15 +9,20 @@ struct MenuPanelView: View {
 
     @ObservedObject var model: VolumeModel
 
-    static func panelHeight(outputRowCount: Int) -> CGFloat {
+    static func panelHeight(outputRowCount: Int, balanceCount: Int = 0) -> CGFloat {
         let rows = min(max(outputRowCount, 1), maximumVisibleRows)
-        return baseHeight + CGFloat(rows) * rowHeight
+        return baseHeight + CGFloat(rows) * rowHeight + balanceHeight(count: balanceCount)
+    }
+
+    static func balanceHeight(count: Int) -> CGFloat {
+        count == 2 ? 72 : 0
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             volumeSlider
+            outputBalance
             Divider()
                 .opacity(0.42)
                 .padding(.vertical, 8)
@@ -34,7 +39,8 @@ struct MenuPanelView: View {
         .padding(.bottom, 4)
         .frame(
             width: Self.panelWidth,
-            height: Self.panelHeight(outputRowCount: model.visibleOutputRowCount),
+            height: Self.panelHeight(outputRowCount: model.visibleOutputRowCount,
+                                     balanceCount: model.balanceDevices.count),
             alignment: .top
         )
         .background {
@@ -109,8 +115,6 @@ struct MenuPanelView: View {
                         deviceRow(device)
                     }
 
-                    groupRow
-
                     ForEach(secondaryOutputDevices) { device in
                         deviceRow(device)
                     }
@@ -128,17 +132,39 @@ struct MenuPanelView: View {
         )
     }
 
-    private var groupRow: some View {
-        Button {
-            model.selectPreferredGroup()
-        } label: {
-            rowContent(
-                title: model.preferredGroupName,
-                symbolName: "speaker.wave.2.fill",
-                selected: model.isPreferredGroupSelected
-            )
+    private var outputBalance: some View {
+        VStack(spacing: 2) {
+            if model.balanceDevices.count == 2 {
+                HStack {
+                    Text("输出平衡")
+                    Spacer()
+                    Button { model.setOutputBalance(0) } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                    }
+                    .buttonStyle(.plain)
+                    .help("重置输出平衡")
+                    .accessibilityLabel("重置输出平衡")
+                }
+                Slider(value: Binding(
+                    get: { Double(model.outputBalance) },
+                    set: { model.setOutputBalance(Float($0)) }
+                ), in: -1...1)
+                .controlSize(.small)
+                .accessibilityLabel("两个输出设备的音量平衡")
+                .disabled(model.balanceDevices.contains { !$0.canSetVolume && !$0.isBenQDisplay })
+                HStack(spacing: 8) {
+                    ForEach(Array(model.balanceDevices.enumerated()), id: \.element.uid) { index, device in
+                        Text(device.name)
+                            .lineLimit(1).truncationMode(.middle)
+                            .frame(maxWidth: .infinity, alignment: index == 0 ? .leading : .trailing)
+                            .help(device.name)
+                    }
+                }
+            }
         }
-        .buttonStyle(.plain)
+        .font(.system(size: 11))
+        .foregroundStyle(.secondary)
+        .frame(height: Self.balanceHeight(count: model.balanceDevices.count))
     }
 
     private func deviceRow(_ device: AudioDevice) -> some View {
@@ -148,7 +174,7 @@ struct MenuPanelView: View {
             rowContent(
                 title: device.name,
                 symbolName: device.symbolName,
-                selected: !model.isPreferredGroupSelected && model.selectedDeviceUIDs.contains(device.uid)
+                selected: model.activeOutputUID == device.uid
             )
         }
         .buttonStyle(.plain)

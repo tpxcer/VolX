@@ -193,7 +193,12 @@ final class CoreAudioDeviceStore {
         }
         let manufacturer = stringProperty(kAudioObjectPropertyManufacturer, deviceID: deviceID) ?? ""
         let outputChannels = channelCount(deviceID: deviceID)
-        let kind = classify(name: name, uid: uid, manufacturer: manufacturer)
+        var transport: UInt32 = 0
+        _ = getUInt32Property(kAudioDevicePropertyTransportType, deviceID: deviceID,
+                             scope: kAudioObjectPropertyScopeGlobal,
+                             element: kAudioObjectPropertyElementMain, value: &transport)
+        let kind: AudioDeviceKind = transport == kAudioDeviceTransportTypeAggregate
+            ? .aggregate : classify(name: name, uid: uid, manufacturer: manufacturer)
         return AudioDevice(
             id: deviceID,
             uid: uid,
@@ -202,8 +207,22 @@ final class CoreAudioDeviceStore {
             kind: kind,
             outputChannels: outputChannels,
             canSetVolume: canSetVolume(deviceID: deviceID),
-            canSetMute: canSetMute(deviceID: deviceID)
+            canSetMute: canSetMute(deviceID: deviceID),
+            aggregateSubDeviceUIDs: kind == .aggregate ? aggregateMembers(deviceID: deviceID) : []
         )
+    }
+
+    private func aggregateMembers(deviceID: AudioDeviceID) -> [String] {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioAggregateDevicePropertyFullSubDeviceList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var value: Unmanaged<CFArray>?
+        var size = UInt32(MemoryLayout<Unmanaged<CFArray>?>.size)
+        guard AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &value) == noErr,
+              let members = value?.takeRetainedValue() as? [String] else { return [] }
+        return members
     }
 
     private func classify(name: String, uid: String, manufacturer: String) -> AudioDeviceKind {

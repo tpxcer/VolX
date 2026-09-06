@@ -35,6 +35,51 @@ enum InterfaceCheckCommand {
         check("menu width", abs(menu.fittingSize.width - 308) <= 1, failures: &failures)
         check("menu empty height", abs(menu.fittingSize.height - 166) <= 1, failures: &failures)
         check("menu native five-row height", abs(MenuPanelView.panelHeight(outputRowCount: 5) - 294) <= 1, failures: &failures)
+        check("dual-output balance fits panel", MenuPanelView.panelHeight(outputRowCount: 5, balanceCount: 2) == 366, failures: &failures)
+        for master: Float in [0, 0.2, 0.4, 0.5, 1] {
+            check("center balance preserves native percentage at \(master)",
+                  VolumeModel.balancedVolume(master, balance: 0, isDisplay: true) == master
+                    && VolumeModel.balancedVolume(master, balance: 0, isDisplay: false) == master,
+                  failures: &failures)
+            for balance: Float in [-1, -0.5, 0, 0.5, 1] {
+                let display = VolumeModel.balancedVolume(master, balance: balance, isDisplay: true)
+                let speaker = VolumeModel.balancedVolume(master, balance: balance, isDisplay: false)
+                check("balance attenuates without boosting at \(master), \(balance)",
+                      display >= 0 && display <= master && speaker >= 0 && speaker <= master
+                        && max(display, speaker) == master, failures: &failures)
+            }
+        }
+        check("balance toward speaker reduces display only",
+              abs(VolumeModel.balancedVolume(0.2, balance: 0.5, isDisplay: true) - 0.1) < 0.001
+                && VolumeModel.balancedVolume(0.2, balance: 0.5, isDisplay: false) == 0.2,
+              failures: &failures)
+        let suite = "VolX.InterfaceCheck.\(UUID().uuidString)"
+        check("balance toward first device reduces second device only",
+              VolumeModel.balancedVolume(0.2, balance: -0.5, isDisplay: true) == 0.2
+                && abs(VolumeModel.balancedVolume(0.2, balance: -0.5, isDisplay: false) - 0.1) < 0.001,
+              failures: &failures)
+        if let defaults = UserDefaults(suiteName: suite) {
+            defer { defaults.removePersistentDomain(forName: suite) }
+            // No devices are loaded: exercise persistence and mute without hardware writes.
+            let calibration = VolumeModel(defaults: defaults)
+            calibration.setUnifiedVolume(0.2, showHUD: false)
+            calibration.setOutputBalance(0.5)
+            let reloaded = VolumeModel(defaults: defaults)
+            check("balance survives relaunch without changing master",
+                  reloaded.outputBalance == 0.5 && reloaded.volume == 0.2, failures: &failures)
+            calibration.toggleMute(showHUD: false)
+            calibration.setOutputBalance(0.75)
+            let muted = VolumeModel(defaults: defaults)
+            check("calibration while muted stays silent after relaunch",
+                  muted.isMuted && muted.volume == 0 && muted.outputBalance == 0.75, failures: &failures)
+            muted.toggleMute(showHUD: false)
+            check("unmute restores master and calibration after relaunch",
+                  !muted.isMuted && muted.volume == 0.2 && muted.outputBalance == 0.75, failures: &failures)
+            muted.setOutputBalance(0)
+            check("balance reset is saved", VolumeModel(defaults: defaults).outputBalance == 0, failures: &failures)
+        } else {
+            check("isolated calibration preferences available", false, failures: &failures)
+        }
         check("menu glass", containsNativeGlassView(in: menu), failures: &failures)
 
         let statusIcon = StatusBarIcon.make(volume: 0.5, isMuted: false)
@@ -202,7 +247,8 @@ enum InterfaceCheckCommand {
             kind: .aggregate,
             outputChannels: 2,
             canSetVolume: false,
-            canSetMute: false
+            canSetMute: false,
+            aggregateSubDeviceUIDs: [display.uid, usb.uid]
         )
         let testDevices = [builtIn, display, usb, aggregate]
         check(
@@ -215,6 +261,11 @@ enum InterfaceCheckCommand {
             VolumeModel.selectionForSystemOutput(uid: aggregate.uid, devices: testDevices) == [display.uid, usb.uid],
             failures: &failures
         )
+        var otherPair = aggregate
+        otherPair.aggregateSubDeviceUIDs = [usb.uid, builtIn.uid]
+        check("USB and Mac pair excludes display", VolumeModel.selectionForSystemOutput(
+            uid: otherPair.uid, devices: [builtIn, display, usb, otherPair]
+        ) == [usb.uid, builtIn.uid], failures: &failures)
 
         print(failures == 0 ? "INTERFACE_RESULT=PASS" : "INTERFACE_RESULT=FAIL failures=\(failures)")
         return failures == 0

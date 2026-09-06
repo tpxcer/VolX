@@ -22,7 +22,8 @@ enum DeviceCheckCommand {
                 "canSetVolume=\(device.canSetVolume)",
                 "canSetMute=\(device.canSetMute)",
                 "volume=\(volume)",
-                "defaultTarget=\(device.isDefaultTarget)"
+                "defaultTarget=\(device.isDefaultTarget)",
+                "members=\(device.aggregateSubDeviceUIDs.joined(separator: ","))"
             ].joined(separator: " | "))
         }
     }

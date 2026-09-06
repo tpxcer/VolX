@@ -9,6 +9,7 @@ final class VolumeModel: ObservableObject {
     @Published var selectedDeviceUIDs: Set<String>
     @Published var activeOutputUID: String?
     @Published var volume: Float
+    @Published private(set) var outputBalance: Float
     @Published var isVolumeSliderDragging = false
     @Published private(set) var isMuted: Bool
     @Published private(set) var lastStatus: String = ""
@@ -21,6 +22,7 @@ final class VolumeModel: ObservableObject {
     var hudAnchorProvider: (() -> NSRect?)?
 
     private let store = CoreAudioDeviceStore()
+    private let defaults: UserDefaults
     private let ddc = DDCVolumeController()
     private let keyMonitor = MediaKeyMonitor()
     private let airPlayBrowser = AirPlayDeviceBrowser()
@@ -30,13 +32,15 @@ final class VolumeModel: ObservableObject {
     private var defaultOutputTimer: Timer?
     private var rememberedVolumeBeforeMute: Float = 0.27
 
-    init() {
-        let defaults = UserDefaults.standard
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         let savedUIDs = defaults.stringArray(forKey: "selectedDeviceUIDs") ?? []
         self.selectedDeviceUIDs = Set(savedUIDs)
         let savedVolume = defaults.object(forKey: "volume") as? Float ?? 0.27
         self.volume = min(max(savedVolume, 0), 1)
         self.isMuted = defaults.bool(forKey: "isMuted")
+        self.outputBalance = min(max(defaults.float(forKey: "outputBalance"), -1), 1)
+        self.rememberedVolumeBeforeMute = defaults.object(forKey: "volumeBeforeMute") as? Float ?? max(savedVolume, 0.01)
         self.launchAtLoginEnabled = LaunchAtLoginController.isEnabled
     }
 
@@ -46,7 +50,6 @@ final class VolumeModel: ObservableObject {
         }
         airPlayBrowser.start()
         refreshDevices()
-        activatePreferredAggregateIfNeeded()
         if enableHotKeys {
             keyMonitor.onAction = { [weak self] action, source in
                 self?.handle(action, source: source)
@@ -76,7 +79,7 @@ final class VolumeModel: ObservableObject {
         let availableUIDs = Set(devices.map(\.uid))
         selectedDeviceUIDs = Set(selectedDeviceUIDs.filter { availableUIDs.contains($0) })
         syncSelectionFromSystemOutput()
-        if selectedDeviceUIDs.isEmpty {
+        if selectedDeviceUIDs.isEmpty && !isMultiOutputSelected {
             let preferred = devices.filter(\.isDefaultTarget)
             selectedDeviceUIDs = Set(preferred.map(\.uid))
             persist()
@@ -91,16 +94,16 @@ final class VolumeModel: ObservableObject {
             selectedDeviceUIDs.insert(uid)
         }
         persist()
-        activatePreferredAggregateIfNeeded()
         applyVolume(volume, showHUD: false)
     }
 
     func selectOnly(_ uid: String) {
-        selectedDeviceUIDs = [uid]
-        persist()
         if let device = devices.first(where: { $0.uid == uid }) {
             if store.setDefaultOutput(deviceID: device.id) {
                 activeOutputUID = device.uid
+                selectedDeviceUIDs = Self.selectionForSystemOutput(uid: uid, devices: devices) ?? []
+                loadPairBalance()
+                persist()
                 lastStatus = "已切换到 \(device.name)"
             } else {
                 lastStatus = "切换到 \(device.name) 失败"
@@ -114,21 +117,8 @@ final class VolumeModel: ObservableObject {
     }
 
     func selectPreferredGroup() {
-        let targets = Set(devices.filter(\.isDefaultTarget).map(\.uid))
-        selectedDeviceUIDs = targets
-        persist()
-        if targets.isEmpty {
-            lastStatus = "未找到 BenQ 和音箱"
-        } else if activatePreferredAggregateIfNeeded() {
-            lastStatus = "已恢复双输出"
-        } else {
-            lastStatus = "未找到系统多输出设备"
-        }
-        applyVolume(
-            volume,
-            showHUD: Self.outputSelectionShowsHUD,
-            preserveStatus: true
-        )
+        guard let aggregate = devices.first(where: \.isPreferredAggregateOutput) else { return }
+        selectOnly(aggregate.uid)
     }
 
     func openAirPlayOutput(_ device: AirPlayDevice) {
@@ -151,6 +141,31 @@ final class VolumeModel: ObservableObject {
         if playFeedback {
             volumeFeedback.play()
         }
+    }
+
+    func setOutputBalance(_ value: Float) {
+        guard value.isFinite else { return }
+        outputBalance = min(max(value, -1), 1)
+        persist()
+        if balanceDevices.count == 2 {
+            applyVolume(volume, showHUD: false)
+        }
+    }
+
+    static func balancedVolume(
+        _ volume: Float,
+        balance: Float,
+        isDisplay: Bool
+    ) -> Float {
+        let balance = min(max(balance, -1), 1)
+        let gain = isDisplay ? 1 - max(balance, 0) : 1 + min(balance, 0)
+        return min(max(volume, 0), 1) * gain
+    }
+
+    private func deviceVolume(_ master: Float, for device: AudioDevice) -> Float {
+        guard balanceDevices.count == 2 else { return master }
+        return Self.balancedVolume(master, balance: outputBalance,
+                                   isDisplay: device.uid == balanceDevices[0].uid)
     }
 
     func handle(_ action: VolumeKeyAction, source: VolumeKeySource? = nil) {
@@ -257,7 +272,7 @@ final class VolumeModel: ObservableObject {
     }
 
     var visibleOutputDevices: [AudioDevice] {
-        devices.filter { !$0.isPreferredAggregateOutput }
+        devices
     }
 
     var visibleAirPlayDevices: [AirPlayDevice] {
@@ -266,7 +281,7 @@ final class VolumeModel: ObservableObject {
     }
 
     var visibleOutputRowCount: Int {
-        visibleOutputDevices.count + visibleAirPlayDevices.count + 1
+        visibleOutputDevices.count + visibleAirPlayDevices.count
     }
 
     var isPreferredGroupSelected: Bool {
@@ -276,8 +291,8 @@ final class VolumeModel: ObservableObject {
 
     var controlTitle: String {
         let selected = selectedDevices
-        if selected.count >= 2 {
-            return preferredGroupName
+        if isMultiOutputSelected {
+            return devices.first(where: { $0.uid == activeOutputUID })?.name ?? "双设备输出"
         }
         return selected.first?.name ?? "统一音量"
     }
@@ -299,25 +314,32 @@ final class VolumeModel: ObservableObject {
         devices: [AudioDevice]
     ) -> Set<String>? {
         guard let output = devices.first(where: { $0.uid == uid }) else { return nil }
-        if output.isPreferredAggregateOutput {
-            return Set(devices.filter(\.isDefaultTarget).map(\.uid))
+        if output.kind == .aggregate {
+            return Set(devices.filter {
+                $0.kind != .aggregate && output.aggregateSubDeviceUIDs.contains($0.uid)
+            }.map(\.uid))
         }
         return [output.uid]
     }
 
     private func syncSelectionFromSystemOutput() {
         guard let systemUID = store.defaultOutputUID() else { return }
+        let outputChanged = activeOutputUID != systemUID
         let changedExternally = activeOutputUID != nil && activeOutputUID != systemUID
         activeOutputUID = systemUID
 
         guard let systemSelection = Self.selectionForSystemOutput(uid: systemUID, devices: devices),
-              selectedDeviceUIDs != systemSelection else {
+              outputChanged || selectedDeviceUIDs != systemSelection else {
             return
         }
 
         selectedDeviceUIDs = systemSelection
+        loadPairBalance()
         persist()
         syncVolumeFromSelectedDevices()
+        if isMultiOutputSelected {
+            applyVolume(volume, showHUD: false)
+        }
         if changedExternally {
             let title = devices.first(where: { $0.uid == systemUID })?.name ?? "系统输出"
             lastStatus = "已跟随系统切换到 \(title)"
@@ -325,32 +347,22 @@ final class VolumeModel: ObservableObject {
     }
 
     private func syncVolumeFromSelectedDevices() {
+        // Calibrated device levels are not the group's independent master volume.
+        guard !isMultiOutputSelected, !isMuted else { return }
         let readable = selectedDevices.compactMap { store.volume(deviceID: $0.id) }
         guard !readable.isEmpty else { return }
         volume = readable.reduce(0, +) / Float(readable.count)
     }
 
-    @discardableResult
-    private func activatePreferredAggregateIfNeeded() -> Bool {
-        guard selectedDevices.count >= 2,
-              let aggregate = devices.first(where: \.isPreferredAggregateOutput) else {
-            return false
-        }
-        if store.setDefaultOutput(deviceID: aggregate.id) {
-            activeOutputUID = aggregate.uid
-            return true
-        }
-        return false
-    }
-
     private func applyVolume(_ newValue: Float, showHUD: Bool, preserveStatus: Bool = false) {
         var changed = 0
         for device in selectedDevices {
+            let target = deviceVolume(isMuted ? 0 : newValue, for: device)
             if device.isBenQDisplay {
-                if ddc.setVolume(newValue, for: device) { changed += 1 }
+                if ddc.setVolume(target, for: device) { changed += 1 }
             } else {
-                _ = store.setMuted(false, deviceID: device.id)
-                if store.setVolume(newValue, deviceID: device.id) {
+                _ = store.setMuted(isMuted, deviceID: device.id)
+                if store.setVolume(target, deviceID: device.id) {
                     changed += 1
                 }
             }
@@ -364,26 +376,9 @@ final class VolumeModel: ObservableObject {
     }
 
     private func applyMute(_ muted: Bool, showHUD: Bool) {
-        var changed = 0
-        let restore = max(rememberedVolumeBeforeMute, 0.01)
-        for device in selectedDevices {
-            if device.isBenQDisplay {
-                if ddc.setMuted(muted, for: device, restoreVolume: restore) { changed += 1 }
-            } else if store.setMuted(muted, deviceID: device.id) {
-                changed += 1
-            } else if store.setVolume(muted ? 0 : restore, deviceID: device.id) {
-                changed += 1
-            }
-        }
-        if muted {
-            volume = 0
-        } else {
-            volume = restore
-        }
-        lastStatus = changed > 0 ? "已同步 \(changed) 个设备静音状态" : ddcStatusText
-        if showHUD {
-            self.showHUD(volume: volume, isMuted: muted)
-        }
+        volume = muted ? 0 : max(rememberedVolumeBeforeMute, 0.01)
+        persist()
+        applyVolume(volume, showHUD: showHUD)
     }
 
     private func showHUD(volume: Float, isMuted: Bool) {
@@ -412,13 +407,43 @@ final class VolumeModel: ObservableObject {
     }
 
     private func persist() {
-        let defaults = UserDefaults.standard
         defaults.set(Array(selectedDeviceUIDs), forKey: "selectedDeviceUIDs")
         defaults.set(volume, forKey: "volume")
         defaults.set(isMuted, forKey: "isMuted")
+        defaults.set(outputBalance, forKey: "outputBalance")
+        if let pairKey {
+            var balances = defaults.dictionary(forKey: "pairBalances") ?? [:]
+            balances[pairKey] = outputBalance
+            defaults.set(balances, forKey: "pairBalances")
+        }
+        defaults.set(rememberedVolumeBeforeMute, forKey: "volumeBeforeMute")
     }
 
     private func normalizedDeviceName(_ name: String) -> String {
         name.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+    }
+
+    var isMultiOutputSelected: Bool {
+        devices.first(where: { $0.uid == activeOutputUID })?.kind == .aggregate
+    }
+
+    var balanceDevices: [AudioDevice] {
+        guard isMultiOutputSelected, selectedDevices.count == 2 else { return [] }
+        return selectedDevices.sorted { $0.uid < $1.uid }
+    }
+
+    private var pairKey: String? {
+        guard balanceDevices.count == 2 else { return nil }
+        return balanceDevices.map { "\($0.uid.count):\($0.uid)" }.joined()
+    }
+
+    private func loadPairBalance() {
+        guard let pairKey else { outputBalance = 0; return }
+        let balances = defaults.dictionary(forKey: "pairBalances")
+        let stored = balances?[pairKey] as? NSNumber
+        let savedSelection = Set(defaults.stringArray(forKey: "selectedDeviceUIDs") ?? [])
+        let legacy = balances == nil && savedSelection == selectedDeviceUIDs
+            ? defaults.float(forKey: "outputBalance") : 0
+        outputBalance = min(max(stored?.floatValue ?? legacy, -1), 1)
     }
 }

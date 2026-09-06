@@ -20,6 +20,7 @@ struct AudioDevice: Identifiable, Hashable {
     let outputChannels: Int
     let canSetVolume: Bool
     let canSetMute: Bool
+    var aggregateSubDeviceUIDs: [String] = []
 
     var isBenQDisplay: Bool {
         name.localizedCaseInsensitiveContains("BenQ")

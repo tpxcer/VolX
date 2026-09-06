@@ -47,6 +47,11 @@ final class StatusBarController {
                 self?.resizeVisiblePanel()
             }
             .store(in: &cancellables)
+
+        model.$devices.combineLatest(model.$selectedDeviceUIDs, model.$activeOutputUID)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _, _, _ in self?.resizeVisiblePanel() }
+            .store(in: &cancellables)
     }
 
     private func refreshIcon() {
@@ -122,7 +127,8 @@ final class StatusBarController {
     private var currentPanelSize: NSSize {
         NSSize(
             width: MenuPanelView.panelWidth,
-            height: MenuPanelView.panelHeight(outputRowCount: model.visibleOutputRowCount)
+            height: MenuPanelView.panelHeight(outputRowCount: model.visibleOutputRowCount,
+                                             balanceCount: model.balanceDevices.count)
         )
     }
 
