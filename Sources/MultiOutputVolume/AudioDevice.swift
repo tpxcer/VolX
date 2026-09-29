@@ -1,4 +1,8 @@
+#if canImport(CoreAudio)
 import CoreAudio
+#else
+typealias AudioDeviceID = UInt32
+#endif
 import Foundation
 
 enum AudioDeviceKind: String, Codable, Hashable {
@@ -21,6 +25,18 @@ struct AudioDevice: Identifiable, Hashable {
     let canSetVolume: Bool
     let canSetMute: Bool
     var aggregateSubDeviceUIDs: [String] = []
+
+    static func selectionForSystemOutput(
+        uid: String,
+        devices: [AudioDevice]
+    ) -> Set<String>? {
+        guard let output = devices.first(where: { $0.uid == uid }) else { return nil }
+        if output.kind == .aggregate {
+            // Declared membership is authoritative even during incomplete enumeration.
+            return Set(output.aggregateSubDeviceUIDs)
+        }
+        return [output.uid]
+    }
 
     var isBenQDisplay: Bool {
         name.localizedCaseInsensitiveContains("BenQ")

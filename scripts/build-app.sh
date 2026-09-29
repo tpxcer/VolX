@@ -6,7 +6,11 @@ APP_DIR="$ROOT/.build/VolX.app"
 CONTENTS="$APP_DIR/Contents"
 MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
-CONFIGURATION="${CONFIGURATION:-debug}"
+CONFIGURATION="${CONFIGURATION:-release}"
+[[ "$(uname -s)" == Darwin ]] || { printf 'macOS required\n' >&2; exit 1; }
+# NSGlassEffectView requires the macOS 26 SDK, even with runtime availability guards.
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+[[ "${SDK_VERSION%%.*}" -ge 26 ]] || { printf '需要 Xcode 26+ 的 macOS SDK\n' >&2; exit 1; }
 
 cd "$ROOT"
 swift build -c "$CONFIGURATION"

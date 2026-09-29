@@ -20,6 +20,7 @@ let package = Package(
                 .linkedFramework("IOKit"),
                 .linkedFramework("SwiftUI")
             ]
-        )
+        ),
+        .testTarget(name: "VolXMacTests", dependencies: ["MultiOutputVolume"], path: "Tests/Mac")
     ]
 )

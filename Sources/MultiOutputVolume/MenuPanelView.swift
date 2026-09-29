@@ -3,7 +3,7 @@ import SwiftUI
 struct MenuPanelView: View {
     static let panelWidth: CGFloat = 308
     static let panelTitle = "VolX"
-    private static let baseHeight: CGFloat = 134
+    private static let baseHeight: CGFloat = 198
     private static let rowHeight: CGFloat = 32
     private static let maximumVisibleRows = 6
 
@@ -32,6 +32,15 @@ struct MenuPanelView: View {
                 .opacity(0.42)
                 .padding(.top, 5)
                 .padding(.horizontal, -7)
+            ScrollView {
+                Text(model.lastStatus.isEmpty ? "仅支持 CoreAudio；DDC 已禁用" : model.lastStatus)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .textSelection(.enabled)
+            }
+            .frame(height: 60)
+            .padding(.top, 4)
             footer
         }
         .padding(.horizontal, 14)
@@ -151,7 +160,7 @@ struct MenuPanelView: View {
                 ), in: -1...1)
                 .controlSize(.small)
                 .accessibilityLabel("两个输出设备的音量平衡")
-                .disabled(model.balanceDevices.contains { !$0.canSetVolume && !$0.isBenQDisplay })
+                .disabled(model.balanceDevices.contains { !$0.canSetVolume })
                 HStack(spacing: 8) {
                     ForEach(Array(model.balanceDevices.enumerated()), id: \.element.uid) { index, device in
                         Text(device.name)

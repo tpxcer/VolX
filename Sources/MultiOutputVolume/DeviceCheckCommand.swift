@@ -120,35 +120,17 @@ enum DeviceCheckCommand {
     }
 
     static func adjustVolume(delta: Float) {
-        let store = CoreAudioDeviceStore()
-        let ddc = DDCVolumeController()
-        let targets = store.outputDevices().filter(\.isDefaultTarget)
-        let current = targets.compactMap { store.volume(deviceID: $0.id) }.first ?? 0.27
-        let next = min(max(current + delta, 0), 1)
-        for device in targets {
-            let ok: Bool
-            if device.isBenQDisplay {
-                ok = ddc.setVolume(next, for: device)
-            } else {
-                _ = store.setMuted(false, deviceID: device.id)
-                ok = store.setVolume(next, deviceID: device.id)
-            }
-            print("set \(device.name) to \(Int((next * 100).rounded()))% => \(ok ? "ok" : "failed")")
-        }
+        let model = VolumeModel()
+        model.refreshDevices()
+        model.setUnifiedVolume(model.volume + delta, showHUD: false)
+        print(model.lastStatus)
     }
 
     static func toggleMute() {
-        let store = CoreAudioDeviceStore()
-        let ddc = DDCVolumeController()
-        let targets = store.outputDevices().filter(\.isDefaultTarget)
-        let shouldMute = !(targets.compactMap { store.isMuted(deviceID: $0.id) }.first ?? false)
-        for device in targets {
-            let ok = device.isBenQDisplay
-                ? ddc.setMuted(shouldMute, for: device, restoreVolume: 0.27)
-                : (store.setMuted(shouldMute, deviceID: device.id)
-                    || store.setVolume(shouldMute ? 0 : 0.27, deviceID: device.id))
-            print("\(shouldMute ? "mute" : "unmute") \(device.name) => \(ok ? "ok" : "failed")")
-        }
+        let model = VolumeModel()
+        model.refreshDevices()
+        model.toggleMute(showHUD: false)
+        print(model.lastStatus)
     }
 
     static func observeHotKeys(seconds: TimeInterval = 10) {
@@ -169,7 +151,7 @@ enum DeviceCheckCommand {
         print("eventTapCreated=\(monitor.eventTapCreated)")
         print("globalMonitorCreated=\(monitor.globalMonitorCreated)")
         print("carbonRegisteredIDs=\(monitor.carbonRegisteredIDs.sorted())")
-        print("press F10/F11/F12 now...")
+        print("press native volume media keys now (ordinary F keys are ignored)...")
         fflush(stdout)
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
             print("observedRawEvents=\(count)")
@@ -179,60 +161,11 @@ enum DeviceCheckCommand {
     }
 
     static func doctor() {
-        let store = CoreAudioDeviceStore()
-        let ddc = DDCVolumeController()
-        let devices = store.outputDevices()
-        let defaultUID = store.defaultOutputUID()
-        let benQ = devices.first(where: \.isBenQDisplay)
-        let usb = devices.first {
-            $0.name.localizedCaseInsensitiveContains("CX31993")
-                || $0.uid.localizedCaseInsensitiveContains("CX31993")
-        }
-        let aggregate = devices.first(where: \.isPreferredAggregateOutput)
-        let currentOutput = devices.first(where: { $0.uid == defaultUID })
-        let volumeFeedback = VolumeFeedbackPlayer()
-        let savedVolume = UserDefaults.standard.object(forKey: "volume") as? Float
-        let verificationVolume = min(max(savedVolume ?? usb.flatMap { store.volume(deviceID: $0.id) } ?? 0.27, 0), 1)
-        var failed = false
-
-        func check(_ title: String, _ ok: Bool, detail: String = "") {
-            if !ok { failed = true }
-            print("\(ok ? "PASS" : "FAIL") \(title)\(detail.isEmpty ? "" : " - \(detail)")")
-        }
-
-        check("default output is recognized", currentOutput != nil, detail: currentOutput?.name ?? defaultUID ?? "nil")
-        check("BenQ MA270UP detected", benQ != nil, detail: benQ?.uid ?? "missing")
-        check("CX31993 detected", usb != nil, detail: usb?.uid ?? "missing")
-        check("preferred aggregate detected", aggregate != nil, detail: aggregate?.uid ?? "missing")
-        check("DDC backend available", ddc.isAvailable)
-        check("system volume feedback sound available", volumeFeedback.isAvailable)
-        check("Accessibility trusted", AXIsProcessTrusted())
-
-        if let aggregate {
-            check("activate preferred aggregate", store.setDefaultOutput(deviceID: aggregate.id), detail: store.defaultOutputUID() ?? "nil")
-        }
-        if let benQ {
-            check("write BenQ volume via DDC", ddc.setVolume(verificationVolume, for: benQ))
-        }
-        if let usb {
-            check("write CX31993 volume via CoreAudio", store.setVolume(verificationVolume, deviceID: usb.id))
-        }
-
-        let monitor = MediaKeyMonitor()
-        monitor.start()
-        check("event tap created", monitor.eventTapCreated)
-        check("global monitor created", monitor.globalMonitorCreated)
-        check("F10/F11/F12 Carbon registered", monitor.carbonRegisteredIDs == [10, 11, 12], detail: "\(monitor.carbonRegisteredIDs.sorted())")
-        monitor.stop()
-
-        if let currentOutput {
-            check("restore original default output", store.setDefaultOutput(deviceID: currentOutput.id), detail: currentOutput.name)
-            if let usb {
-                check("restore CX31993 verification volume", store.setVolume(verificationVolume, deviceID: usb.id))
-            }
-        }
-
-        print(failed ? "DOCTOR_RESULT=FAIL" : "DOCTOR_RESULT=PASS")
+        // Read-only: never switch routing, probe writes or create an exclusive event tap.
+        run()
+        checkPermissions()
+        print("DDC=disabled; Bonjour=not started; native key handling requires manual verification")
+        print("DOCTOR_RESULT=READ_ONLY (not a hardware acceptance test)")
     }
 }
 

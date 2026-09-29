@@ -2,8 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INSTALLED_APP="/Applications/VolX.app/Contents/MacOS/MultiOutputVolume"
-DEBUG_BIN="$ROOT/.build/debug/MultiOutputVolume"
+INSTALLED_APP="$HOME/Applications/VolX.app/Contents/MacOS/MultiOutputVolume"
+DEBUG_BIN="$ROOT/.build/release/MultiOutputVolume"
 
 if [[ -x "$INSTALLED_APP" ]]; then
   BIN="$INSTALLED_APP"

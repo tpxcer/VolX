@@ -33,9 +33,9 @@ enum InterfaceCheckCommand {
         let menu = NSHostingView(rootView: MenuPanelView(model: VolumeModel()))
         menu.layoutSubtreeIfNeeded()
         check("menu width", abs(menu.fittingSize.width - 308) <= 1, failures: &failures)
-        check("menu empty height", abs(menu.fittingSize.height - 166) <= 1, failures: &failures)
-        check("menu native five-row height", abs(MenuPanelView.panelHeight(outputRowCount: 5) - 294) <= 1, failures: &failures)
-        check("dual-output balance fits panel", MenuPanelView.panelHeight(outputRowCount: 5, balanceCount: 2) == 366, failures: &failures)
+        check("menu empty height", abs(menu.fittingSize.height - 230) <= 1, failures: &failures)
+        check("menu native five-row height", abs(MenuPanelView.panelHeight(outputRowCount: 5) - 358) <= 1, failures: &failures)
+        check("dual-output balance fits panel", MenuPanelView.panelHeight(outputRowCount: 5, balanceCount: 2) == 430, failures: &failures)
         for master: Float in [0, 0.2, 0.4, 0.5, 1] {
             check("center balance preserves native percentage at \(master)",
                   VolumeModel.balancedVolume(master, balance: 0, isDisplay: true) == master
@@ -65,16 +65,16 @@ enum InterfaceCheckCommand {
             calibration.setUnifiedVolume(0.2, showHUD: false)
             calibration.setOutputBalance(0.5)
             let reloaded = VolumeModel(defaults: defaults)
-            check("balance survives relaunch without changing master",
-                  reloaded.outputBalance == 0.5 && reloaded.volume == 0.2, failures: &failures)
+            check("balance persists but startup never adopts a saved volume",
+                  reloaded.outputBalance == 0.5 && reloaded.volume == 0, failures: &failures)
             calibration.toggleMute(showHUD: false)
             calibration.setOutputBalance(0.75)
             let muted = VolumeModel(defaults: defaults)
-            check("calibration while muted stays silent after relaunch",
-                  muted.isMuted && muted.volume == 0 && muted.outputBalance == 0.75, failures: &failures)
+            check("no devices never confirms mute after relaunch",
+                  !muted.isMuted && muted.volume == 0 && muted.outputBalance == 0.75, failures: &failures)
             muted.toggleMute(showHUD: false)
-            check("unmute restores master and calibration after relaunch",
-                  !muted.isMuted && muted.volume == 0.2 && muted.outputBalance == 0.75, failures: &failures)
+            check("no devices cannot synthesize an unmute volume",
+                  !muted.isMuted && muted.volume == 0 && muted.outputBalance == 0.75, failures: &failures)
             muted.setOutputBalance(0)
             check("balance reset is saved", VolumeModel(defaults: defaults).outputBalance == 0, failures: &failures)
         } else {

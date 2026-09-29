@@ -1,7 +1,17 @@
 import CoreAudio
 import Foundation
 
-final class CoreAudioDeviceStore {
+protocol AudioDeviceStoring {
+    func outputDevices() -> [AudioDevice]
+    func defaultOutputUID() -> String?
+    func setDefaultOutput(deviceID: AudioDeviceID) -> Bool
+    func volume(deviceID: AudioDeviceID) -> Float?
+    func isMuted(deviceID: AudioDeviceID) -> Bool?
+    func setVolume(_ volume: Float, deviceID: AudioDeviceID) -> Bool
+    func setMuted(_ muted: Bool, deviceID: AudioDeviceID) -> Bool
+}
+
+final class CoreAudioDeviceStore: AudioDeviceStoring {
     func outputDevices() -> [AudioDevice] {
         allDeviceIDs().compactMap(device(for:)).filter { $0.outputChannels > 0 }
             .sorted { lhs, rhs in
@@ -63,74 +73,55 @@ final class CoreAudioDeviceStore {
             size,
             &systemOutput
         ) == noErr
-        return outputOK || systemOK
+        var actualOutput: UInt32 = 0
+        var actualSystem: UInt32 = 0
+        let outputRead = getUInt32Property(kAudioHardwarePropertyDefaultOutputDevice,
+            deviceID: AudioObjectID(kAudioObjectSystemObject), scope: kAudioObjectPropertyScopeGlobal,
+            element: kAudioObjectPropertyElementMain, value: &actualOutput)
+        let systemRead = getUInt32Property(kAudioHardwarePropertyDefaultSystemOutputDevice,
+            deviceID: AudioObjectID(kAudioObjectSystemObject), scope: kAudioObjectPropertyScopeGlobal,
+            element: kAudioObjectPropertyElementMain, value: &actualSystem)
+        return OutputSwitchResult(output: outputOK && outputRead && actualOutput == deviceID,
+            system: systemOK && systemRead && actualSystem == deviceID).complete
+    }
+
+    private func volumeElements(deviceID: AudioDeviceID) -> [Int] {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyVolumeScalar,
+            mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+        if AudioObjectHasProperty(deviceID, &address) { return [0] }
+        let count = channelCount(deviceID: deviceID)
+        return count > 0 ? Array(1...count) : []
     }
 
     func volume(deviceID: AudioDeviceID) -> Float? {
-        if let master = scalarProperty(
-            kAudioDevicePropertyVolumeScalar,
-            deviceID: deviceID,
-            scope: kAudioDevicePropertyScopeOutput,
-            element: kAudioObjectPropertyElementMain
-        ) {
-            return master
-        }
-        let left = scalarProperty(
-            kAudioDevicePropertyVolumeScalar,
-            deviceID: deviceID,
-            scope: kAudioDevicePropertyScopeOutput,
-            element: 1
-        )
-        let right = scalarProperty(
-            kAudioDevicePropertyVolumeScalar,
-            deviceID: deviceID,
-            scope: kAudioDevicePropertyScopeOutput,
-            element: 2
-        )
-        switch (left, right) {
-        case let (.some(left), .some(right)):
-            return (left + right) / 2
-        case let (.some(value), nil), let (nil, .some(value)):
-            return value
-        default:
-            return nil
+        VerifiedLevelIO.read(elements: volumeElements(deviceID: deviceID)) { element in
+            scalarProperty(kAudioDevicePropertyVolumeScalar, deviceID: deviceID,
+                scope: kAudioDevicePropertyScopeOutput, element: UInt32(element))
         }
     }
 
     func setVolume(_ volume: Float, deviceID: AudioDeviceID) -> Bool {
-        let clamped = min(max(volume, 0), 1)
-        var changed = false
-        if setScalarProperty(
-            kAudioDevicePropertyVolumeScalar,
-            value: clamped,
-            deviceID: deviceID,
-            scope: kAudioDevicePropertyScopeOutput,
-            element: kAudioObjectPropertyElementMain
-        ) {
-            changed = true
-        }
-        if setScalarProperty(
-            kAudioDevicePropertyVolumeScalar,
-            value: clamped,
-            deviceID: deviceID,
-            scope: kAudioDevicePropertyScopeOutput,
-            element: 1
-        ) {
-            changed = true
-        }
-        if setScalarProperty(
-            kAudioDevicePropertyVolumeScalar,
-            value: clamped,
-            deviceID: deviceID,
-            scope: kAudioDevicePropertyScopeOutput,
-            element: 2
-        ) {
-            changed = true
-        }
-        return changed
+        VerifiedLevelIO.write(volume, elements: volumeElements(deviceID: deviceID), set: { element, value in
+            self.setScalarProperty(kAudioDevicePropertyVolumeScalar, value: value, deviceID: deviceID,
+                scope: kAudioDevicePropertyScopeOutput, element: UInt32(element))
+        }, get: { element in
+            self.scalarProperty(kAudioDevicePropertyVolumeScalar, deviceID: deviceID,
+                scope: kAudioDevicePropertyScopeOutput, element: UInt32(element))
+        })
     }
 
     func isMuted(deviceID: AudioDeviceID) -> Bool? {
+        var address = AudioObjectPropertyAddress(mSelector: kAudioDevicePropertyMute,
+            mScope: kAudioDevicePropertyScopeOutput, mElement: kAudioObjectPropertyElementMain)
+        if !AudioObjectHasProperty(deviceID, &address) {
+            // A per-channel mute property is not safely represented by one Bool.
+            for element in 1...max(channelCount(deviceID: deviceID), 1) {
+                address.mElement = UInt32(element)
+                if AudioObjectHasProperty(deviceID, &address) { return nil }
+            }
+            // Only a real, readable device with no mute property is known unmuted.
+            return volume(deviceID: deviceID) == nil ? nil : false
+        }
         var value: UInt32 = 0
         guard getUInt32Property(
             kAudioDevicePropertyMute,
@@ -146,13 +137,14 @@ final class CoreAudioDeviceStore {
 
     func setMuted(_ muted: Bool, deviceID: AudioDeviceID) -> Bool {
         var value: UInt32 = muted ? 1 : 0
-        return setUInt32Property(
+        let wrote = setUInt32Property(
             kAudioDevicePropertyMute,
             deviceID: deviceID,
             scope: kAudioDevicePropertyScopeOutput,
             element: kAudioObjectPropertyElementMain,
             value: &value
         )
+        return wrote && isMuted(deviceID: deviceID) == muted
     }
 
     private func allDeviceIDs() -> [AudioDeviceID] {

@@ -10,9 +10,8 @@ struct GlassBackground: NSViewRepresentable {
             let view = NSGlassEffectView()
             view.style = .regular
             view.cornerRadius = cornerRadius
-            if #available(macOS 27.0, *) {
-                view.effectIsInteractive = false
-            }
+            // Keep to the macOS 26 SDK surface; runtime availability checks
+            // cannot make a property from a newer SDK compile here.
             applyClipping(to: view)
             return view
         }

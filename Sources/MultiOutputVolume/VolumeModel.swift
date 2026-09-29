@@ -21,7 +21,8 @@ final class VolumeModel: ObservableObject {
     static let outputSelectionShowsHUD = false
     var hudAnchorProvider: (() -> NSRect?)?
 
-    private let store = CoreAudioDeviceStore()
+    private let store: AudioDeviceStoring
+    private let controller: SafeVolumeController
     private let defaults: UserDefaults
     private let ddc = DDCVolumeController()
     private let keyMonitor = MediaKeyMonitor()
@@ -30,17 +31,18 @@ final class VolumeModel: ObservableObject {
     private let volumeFeedback = VolumeFeedbackPlayer()
     private var refreshTimer: Timer?
     private var defaultOutputTimer: Timer?
-    private var rememberedVolumeBeforeMute: Float = 0.27
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, store: AudioDeviceStoring = CoreAudioDeviceStore()) {
         self.defaults = defaults
+        self.store = store
+        let savedRestore = (defaults.dictionary(forKey: "restoreLevelsByUID") ?? [:])
+            .compactMapValues { ($0 as? NSNumber)?.floatValue }
+        self.controller = SafeVolumeController(restoreLevels: savedRestore)
         let savedUIDs = defaults.stringArray(forKey: "selectedDeviceUIDs") ?? []
         self.selectedDeviceUIDs = Set(savedUIDs)
-        let savedVolume = defaults.object(forKey: "volume") as? Float ?? 0.27
-        self.volume = min(max(savedVolume, 0), 1)
-        self.isMuted = defaults.bool(forKey: "isMuted")
+        self.volume = 0
+        self.isMuted = false
         self.outputBalance = min(max(defaults.float(forKey: "outputBalance"), -1), 1)
-        self.rememberedVolumeBeforeMute = defaults.object(forKey: "volumeBeforeMute") as? Float ?? max(savedVolume, 0.01)
         self.launchAtLoginEnabled = LaunchAtLoginController.isEnabled
     }
 
@@ -48,7 +50,8 @@ final class VolumeModel: ObservableObject {
         airPlayBrowser.onChange = { [weak self] devices in
             self?.airPlayDevices = devices
         }
-        airPlayBrowser.start()
+        // Opt-in only: no unnecessary LAN discovery for local speaker/headphone control.
+        if defaults.bool(forKey: "enableBonjourDiscovery") { airPlayBrowser.start() }
         refreshDevices()
         if enableHotKeys {
             keyMonitor.onAction = { [weak self] action, source in
@@ -62,7 +65,6 @@ final class VolumeModel: ObservableObject {
         defaultOutputTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.syncSelectionFromSystemOutput() }
         }
-        applyVolume(volume, showHUD: Self.outputSelectionShowsHUD)
     }
 
     func stop() {
@@ -76,14 +78,7 @@ final class VolumeModel: ObservableObject {
 
     func refreshDevices() {
         devices = store.outputDevices()
-        let availableUIDs = Set(devices.map(\.uid))
-        selectedDeviceUIDs = Set(selectedDeviceUIDs.filter { availableUIDs.contains($0) })
         syncSelectionFromSystemOutput()
-        if selectedDeviceUIDs.isEmpty && !isMultiOutputSelected {
-            let preferred = devices.filter(\.isDefaultTarget)
-            selectedDeviceUIDs = Set(preferred.map(\.uid))
-            persist()
-        }
         syncVolumeFromSelectedDevices()
     }
 
@@ -93,27 +88,19 @@ final class VolumeModel: ObservableObject {
         } else {
             selectedDeviceUIDs.insert(uid)
         }
+        loadPairBalance()
         persist()
-        applyVolume(volume, showHUD: false)
+        syncVolumeFromSelectedDevices()
     }
 
     func selectOnly(_ uid: String) {
-        if let device = devices.first(where: { $0.uid == uid }) {
-            if store.setDefaultOutput(deviceID: device.id) {
-                activeOutputUID = device.uid
-                selectedDeviceUIDs = Self.selectionForSystemOutput(uid: uid, devices: devices) ?? []
-                loadPairBalance()
-                persist()
-                lastStatus = "已切换到 \(device.name)"
-            } else {
-                lastStatus = "切换到 \(device.name) 失败"
-            }
-        }
-        applyVolume(
-            volume,
-            showHUD: Self.outputSelectionShowsHUD,
-            preserveStatus: true
-        )
+        guard let device = devices.first(where: { $0.uid == uid }) else { return }
+        let complete = store.setDefaultOutput(deviceID: device.id)
+        // Even a partial switch may have changed the normal output. Follow actual routing.
+        syncSelectionFromSystemOutput()
+        syncVolumeFromSelectedDevices()
+        lastStatus = complete ? "已切换到 \(device.name)（输出及系统提示音均确认）"
+            : "切换未全部成功：\(device.name)；请检查系统输出与提示音输出"
     }
 
     func selectPreferredGroup() {
@@ -134,10 +121,8 @@ final class VolumeModel: ObservableObject {
         showHUD: Bool = true,
         playFeedback: Bool = false
     ) {
-        isMuted = false
-        volume = min(max(newValue, 0), 1)
-        persist()
-        applyVolume(volume, showHUD: showHUD)
+        guard newValue.isFinite else { return }
+        applyVolume(min(max(newValue, 0), 1), showHUD: showHUD)
         if playFeedback {
             volumeFeedback.play()
         }
@@ -147,7 +132,7 @@ final class VolumeModel: ObservableObject {
         guard value.isFinite else { return }
         outputBalance = min(max(value, -1), 1)
         persist()
-        if balanceDevices.count == 2 {
+        if balanceDevices.count == 2 && !isMuted {
             applyVolume(volume, showHUD: false)
         }
     }
@@ -169,6 +154,7 @@ final class VolumeModel: ObservableObject {
     }
 
     func handle(_ action: VolumeKeyAction, source: VolumeKeySource? = nil) {
+        refreshDevices() // Resolve routing and actual level before handling a native key.
         if let source {
             lastHotKeySource = source.rawValue
         }
@@ -246,14 +232,9 @@ final class VolumeModel: ObservableObject {
     }
 
     func toggleMute(showHUD: Bool = true) {
-        isMuted.toggle()
-        if isMuted {
-            rememberedVolumeBeforeMute = max(volume, 0.01)
-        } else if volume <= 0.001 {
-            volume = rememberedVolumeBeforeMute
-        }
-        persist()
-        applyMute(isMuted, showHUD: showHUD)
+        syncVolumeFromSelectedDevices()
+        let targets = controller.muteTargets(readSelectedLevels(), muted: !isMuted)
+        applyTargets(targets, showHUD: showHUD)
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {
@@ -298,7 +279,7 @@ final class VolumeModel: ObservableObject {
     }
 
     var ddcStatusText: String {
-        ddc.isAvailable ? "DDC 后端已找到" : "未找到 ddcctl/m1ddc，BenQ 暂不能由本工具直接写入音量"
+        "本修复版已禁用 DDC：显示器音量不受支持；仅控制 CoreAudio 音箱/耳机"
     }
 
     static func shouldShowCustomHUD(for source: VolumeKeySource?) -> Bool {
@@ -309,76 +290,105 @@ final class VolumeModel: ObservableObject {
         source != .globalMonitor
     }
 
-    static func selectionForSystemOutput(
-        uid: String,
-        devices: [AudioDevice]
-    ) -> Set<String>? {
-        guard let output = devices.first(where: { $0.uid == uid }) else { return nil }
-        if output.kind == .aggregate {
-            return Set(devices.filter {
-                $0.kind != .aggregate && output.aggregateSubDeviceUIDs.contains($0.uid)
-            }.map(\.uid))
-        }
-        return [output.uid]
+    static func selectionForSystemOutput(uid: String, devices: [AudioDevice]) -> Set<String>? {
+        AudioDevice.selectionForSystemOutput(uid: uid, devices: devices)
     }
 
     private func syncSelectionFromSystemOutput() {
-        guard let systemUID = store.defaultOutputUID() else { return }
+        guard let systemUID = store.defaultOutputUID() else {
+            activeOutputUID = nil
+            selectedDeviceUIDs = []
+            syncVolumeFromSelectedDevices()
+            return
+        }
         let outputChanged = activeOutputUID != systemUID
         let changedExternally = activeOutputUID != nil && activeOutputUID != systemUID
         activeOutputUID = systemUID
 
-        guard let systemSelection = Self.selectionForSystemOutput(uid: systemUID, devices: devices),
-              outputChanged || selectedDeviceUIDs != systemSelection else {
+        guard let systemSelection = Self.selectionForSystemOutput(uid: systemUID, devices: devices) else {
+            selectedDeviceUIDs = []
+            syncVolumeFromSelectedDevices()
             return
         }
+        guard outputChanged || selectedDeviceUIDs != systemSelection else { return }
 
         selectedDeviceUIDs = systemSelection
         loadPairBalance()
         persist()
         syncVolumeFromSelectedDevices()
-        if isMultiOutputSelected {
-            applyVolume(volume, showHUD: false)
-        }
         if changedExternally {
             let title = devices.first(where: { $0.uid == systemUID })?.name ?? "系统输出"
             lastStatus = "已跟随系统切换到 \(title)"
         }
     }
 
-    private func syncVolumeFromSelectedDevices() {
-        // Calibrated device levels are not the group's independent master volume.
-        guard !isMultiOutputSelected, !isMuted else { return }
-        let readable = selectedDevices.compactMap { store.volume(deviceID: $0.id) }
-        guard !readable.isEmpty else { return }
-        volume = readable.reduce(0, +) / Float(readable.count)
-    }
-
-    private func applyVolume(_ newValue: Float, showHUD: Bool, preserveStatus: Bool = false) {
-        var changed = 0
-        for device in selectedDevices {
-            let target = deviceVolume(isMuted ? 0 : newValue, for: device)
-            if device.isBenQDisplay {
-                if ddc.setVolume(target, for: device) { changed += 1 }
-            } else {
-                _ = store.setMuted(isMuted, deviceID: device.id)
-                if store.setVolume(target, deviceID: device.id) {
-                    changed += 1
-                }
+    private func readSelectedLevels() -> [DeviceLevel] {
+        selectedDeviceUIDs.sorted().map { uid in
+            guard let device = selectedDevices.first(where: { $0.uid == uid }) else {
+                return DeviceLevel(uid: uid, volume: nil, muted: nil)
             }
-        }
-        if !preserveStatus {
-            lastStatus = changed > 0 ? "已同步 \(changed) 个设备音量" : ddcStatusText
-        }
-        if showHUD {
-            self.showHUD(volume: newValue, isMuted: isMuted)
+            return DeviceLevel(uid: uid, volume: store.volume(deviceID: device.id),
+                               muted: store.isMuted(deviceID: device.id))
         }
     }
 
-    private func applyMute(_ muted: Bool, showHUD: Bool) {
-        volume = muted ? 0 : max(rememberedVolumeBeforeMute, 0.01)
+    private func syncVolumeFromSelectedDevices() {
+        controller.observe(readSelectedLevels())
+        volume = controller.volume
+        isMuted = controller.isMuted
+    }
+
+    private func applyVolume(_ newValue: Float, showHUD: Bool) {
+        let targets = selectedDeviceUIDs.sorted().map { uid in
+            let device = selectedDevices.first { $0.uid == uid }
+            return DeviceTarget(uid: uid,
+                                volume: device.map { deviceVolume(newValue, for: $0) } ?? newValue,
+                                muted: false)
+        }
+        applyTargets(targets, showHUD: showHUD)
+    }
+
+    private func applyTargets(_ targets: [DeviceTarget], showHUD: Bool) {
+        let outcomes = controller.apply(targets, write: { target in
+            guard let device = self.selectedDevices.first(where: { $0.uid == target.uid }),
+                  !device.isBenQDisplay else { return false }
+            // Restore level while still hardware-muted, then unmute, never the reverse.
+            let levelOK = self.store.setVolume(target.volume, deviceID: device.id)
+            var muteOK = true
+            if device.canSetMute {
+                // A failed restore must not unmute an unexpectedly loud device.
+                if target.muted || levelOK {
+                    muteOK = self.store.setMuted(target.muted, deviceID: device.id)
+                } else { muteOK = false }
+            } else if !target.muted {
+                muteOK = self.store.isMuted(deviceID: device.id) == false
+            }
+            return levelOK && muteOK
+        }, read: { uid in
+            guard let device = self.selectedDevices.first(where: { $0.uid == uid }) else {
+                return DeviceLevel(uid: uid, volume: nil, muted: nil)
+            }
+            return DeviceLevel(uid: uid, volume: self.store.volume(deviceID: device.id),
+                               muted: self.store.isMuted(deviceID: device.id))
+        })
+        volume = controller.volume
+        isMuted = controller.isMuted
+        let failures = outcomes.filter { !$0.confirmed }.map { outcome in
+            selectedDevices.first(where: { $0.uid == outcome.uid })?.name ?? outcome.uid
+        }
+        if outcomes.isEmpty {
+            lastStatus = "没有可控制的输出设备"
+        } else if failures.isEmpty {
+            lastStatus = "已确认 \(outcomes.count) 个设备\(isMuted ? "静音" : "音量")"
+        } else {
+            lastStatus = "部分/全部未确认：\(failures.joined(separator: "、"))；请检查实际声音（DDC 不支持）"
+        }
         persist()
-        applyVolume(volume, showHUD: showHUD)
+        if showHUD {
+            // The HUD must carry failure text, not just a misleading mute glyph.
+            hud.show(title: failures.isEmpty && !outcomes.isEmpty ? controlTitle : lastStatus,
+                     volume: volume, isMuted: isMuted, anchorRect: hudAnchorProvider?())
+        }
     }
 
     private func showHUD(volume: Float, isMuted: Bool) {
@@ -408,6 +418,7 @@ final class VolumeModel: ObservableObject {
 
     private func persist() {
         defaults.set(Array(selectedDeviceUIDs), forKey: "selectedDeviceUIDs")
+        defaults.set(controller.restoreLevels, forKey: "restoreLevelsByUID")
         defaults.set(volume, forKey: "volume")
         defaults.set(isMuted, forKey: "isMuted")
         defaults.set(outputBalance, forKey: "outputBalance")
@@ -416,7 +427,6 @@ final class VolumeModel: ObservableObject {
             balances[pairKey] = outputBalance
             defaults.set(balances, forKey: "pairBalances")
         }
-        defaults.set(rememberedVolumeBeforeMute, forKey: "volumeBeforeMute")
     }
 
     private func normalizedDeviceName(_ name: String) -> String {

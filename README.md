@@ -1,136 +1,76 @@
-# VolX
+# VolX 0.3.6-fixed.1（源码修复版）
 
-一个本地 macOS 菜单栏小工具，用来统一控制多个输出设备的音量。
+针对 Mac 内置扬声器与 External Headphones 的 CoreAudio 音量控制修复。
+基于上游 `23415069cd2e3198212185553686cd3440873f88`；不是上游官方二进制发行版。
 
-## 下载
+**交付的是源码，不是已验证的 Mac 安装包。** 已在 Linux 使用真实 Swift 6.1.3 编译运行共享业务核心测试；没有 macOS SDK 类型检查、Mac 应用构建或硬件验收。不能将语法检查当成 Mac 编译通过。
 
-从 [GitHub Releases](https://github.com/tpxcer/VolX/releases/latest) 下载：
+## 一条命令构建并安装
 
-- `VolX-0.3.6-arm64.dmg`：磁盘映像安装包。
-- `VolX-0.3.6-arm64.zip`：压缩版 App。
+要求：macOS 14+；完整 Xcode 26+（现有玻璃 UI 引用 macOS 26 SDK；低版本运行时使用旧材质），且 `xcrun --sdk macosx --show-sdk-version` 显示 26 或更新。使用本机架构构建，无第三方 Swift 包依赖。
 
-当前安装包为 Apple 芯片 `arm64` 版本，要求 macOS 14 或更高版本。App 使用 ad-hoc 临时签名，尚未使用 Developer ID 签名或通过 Apple 公证；首次打开时可能需要在 Finder 中右键 VolX 并选择“打开”。
-
-当前目标设备：
-
-- `BenQ MA270UP`：通过 `m1ddc` 走 DDC/CI 控制显示器内部音量。
-- `CX31993 384Khz HIFI AUDIO`：通过 CoreAudio 控制 USB 声卡音量。
-- 系统多输出设备：读取实际成员，支持显示器＋音箱、音箱＋Mac 内置扬声器等双设备组合；启动时跟随系统当前输出，不再强制切换到固定组合。
-
-## 功能
-
-- `F10`：静音/取消静音。
-- `F11`：统一减小音量。
-- `F12`：统一增大音量。
-- 点击菜单栏 VolX 图标：弹出原生玻璃材质的声音面板、设备选择和音量滑块；面板左边缘与图标左边缘对齐。
-- 拖动音量滑块时，滑块会展开为约 `28 x 22` 点的透明 Liquid Glass 椭圆，内部能透出蓝色和灰色轨道；松开后恢复 `20 x 16` 点白色胶囊。
-- 点击面板滑块左侧的喇叭：静音或取消静音，且不会再额外弹出 HUD。
-- 点单个设备会切换到该输出；点已创建的系统多输出设备会切换到对应组合，列表名称与系统一致。
-- 选择包含两台输出设备的系统多输出设备后，可用“输出平衡”调整相对音量。滑块两端显示实际设备名称，往一侧拖会降低另一侧音量，主音量和静音恢复沿用该比例。支持显示器＋音箱、音箱＋Mac 内置扬声器等组合，按设备组合保存比例；单设备模式不使用校准。需先在“音频 MIDI 设置”中创建包含这两台设备的多输出设备。
-- 不对显示器施加固定比例补偿：输出平衡居中时，主音量 40% 会将两台设备分别设为各自的 40%；手动调整输出平衡时才降低另一侧音量。相同百分比不代表实际听感响度相同。
-- 切换单个设备或组合输出时不显示音量 HUD，面板保持原位。
-- 在 macOS 系统面板切换本机输出后，VolX 会在约 0.5 秒内同步选中状态和控制目标。
-- 自动发现同一网络中的 AirPlay 扬声器；点击远程设备会打开系统声音设置，由 macOS 完成全局输出切换。
-- 使用快捷键调节音量或静音时：只显示一个紧凑的 macOS 风格玻璃 HUD，HUD 左边缘与菜单栏 VolX 图标左边缘对齐。
-- 使用 F11/F12 调节音量时播放 macOS 原生音量反馈音，并遵循系统的“更改音量时播放反馈”开关；面板滑块在松开时播放一次。
-- 首次打开辅助功能权限后，App 会自动建立独占按键拦截，不需要再次退出重开。
-- 菜单栏使用与系统声音图标同尺寸的两层动态扬声器图标：浅色最大音量轮廓叠加亮白当前音量；App 使用完整彩色双路音频图标。
-- 右键点击菜单栏图标可以开启或关闭登录时启动，也可以退出 VolX。
-
-## 构建
+解压源码并在目录内执行：
 
 ```bash
-scripts/build-app.sh
-open .build/VolX.app
+bash scripts/install-app.sh
 ```
 
-Release 优化构建：
+该命令先执行便携测试和 Mac XCTest，再 release 构建、ad-hoc 签名，安装到 `~/Applications/VolX.app`，**不使用 sudo**。请先退出旧版。已有安装会保留带时间戳的备份；不会替换 `/Applications` 内的旧版，请勿同时运行两份。
 
 ```bash
-CONFIGURATION=release scripts/build-app.sh
+open "$HOME/Applications/VolX.app"
 ```
 
-## 安装到应用程序
+没有 Developer ID 签名或 Apple 公证。Gatekeeper 拦截时请只对自己审核并构建的应用使用 Finder「打开」或系统设置中的「仍要打开」；不要关闭全局安全检查。辅助功能授权可能需要删除旧条目并重新添加新路径。
+
+## 修复行为
+
+- 启动、刷新、切换输出只读取实际音量与硬件静音，不回放旧的音量/静音设置。
+- 每台设备独立记录静音前音量，按 UID 持久保存；仅明确取消静音时恢复。硬件已有正音量优先于旧恢复值。
+- 写入后逐通道读回；任一失败都不宣称全部成功。面板可滚动状态文本和 HUD 列出未确认的设备。多输出保留所有声明成员；枚举缺失的成员视为未知并以 UID 报告未确认，不误报全部静音。
+- 取消静音先写入目标音量，确认后才解除硬件静音，避免突然恢复到未知大音量。
+- 仅拦截原生 NX 音量媒体事件；普通 F10/F11/F12、其他按键和 Shift/Control/Option/Command 组合交给系统。不注册 Carbon F 键，不使用会重复写入的全局监听兜底。
+- 没有权限时不拦截；系统原生音量处理仍可用。授权后会重试建立 event tap。没有普通键码日志。
+- **DDC 完全禁用**：不调用 m1ddc/ddcctl、不猜测显示器映射；不要为本版安装这些工具。
+- Bonjour 默认关闭。只有显式设置 `enableBonjourDiscovery` 或执行 `--check-airplay` 才扫描局域网。
+- 默认输出及系统提示音输出都写入并读回成功才报告完整切换；部分切换明确提示。
+
+## 权限与原生音量键
+
+「系统设置 → 隐私与安全性 → 辅助功能」允许当前安装路径的 VolX；若 macOS 要求输入监控也需允许。键盘设置若将顶排当作普通 F 键，请使用能产生原生音量事件的 Fn 组合。普通 F 键故意不接管。
+
+## 自动测试
 
 ```bash
-scripts/install-app.sh
-open /Applications/VolX.app
+bash scripts/test-portable.sh          # Linux/macOS；直接编译应用真实 SafeVolumeCore.swift 和 AudioDevice.swift
+swift test                             # 仅 Mac：VolumeModel fake-store 集成及 NSEvent 事件测试
+swiftc -frontend -parse Sources/MultiOutputVolume/*.swift Tests/Mac/*.swift
 ```
 
-## 验证命令
+`SWIFTC=/path/to/swiftc bash scripts/test-portable.sh` 可选择工具链。39 项便携检查覆盖声明成员枚举缺失、实际状态观察、部分静音失败、独立恢复、持久恢复、通道部分写入、读回不一致、媒体键筛选、重复静音、部分输出切换。Mac 测试尚未在本次环境执行。
 
-一键体检：
-
-注意：`--doctor` 和下方音量、静音、输出切换命令会实际改变设备状态，`--doctor` 的直接写入不会应用输出平衡。仅检查且不改变当前声音时，使用 `--check-devices` 和 `--check-interface`。
+只读设备检查：
 
 ```bash
-scripts/doctor.sh
+"$HOME/Applications/VolX.app/Contents/MacOS/MultiOutputVolume" --check-devices
 ```
 
-完整手动验证：
+`--observe-hotkeys 10` 只输出识别出的音量动作，但会暂时消费音量键，不调节硬件；不要与正常 VolX 同时运行。旧版 `--doctor` 在本修复版改为只读设备/权限报告。`--volume-up`、`--volume-down`、`--toggle-mute` 和输出切换命令仍会改变声音；不要把它们当只读诊断。
 
-```bash
-swift build
-.build/debug/MultiOutputVolume --check-devices
-.build/debug/MultiOutputVolume --doctor
-.build/debug/MultiOutputVolume --activate-aggregate
-.build/debug/MultiOutputVolume --select-preferred-group
-.build/debug/MultiOutputVolume --select-output CX31993
-.build/debug/MultiOutputVolume --apply-default-volume
-.build/debug/MultiOutputVolume --volume-up
-.build/debug/MultiOutputVolume --volume-down
-.build/debug/MultiOutputVolume --toggle-mute
-.build/debug/MultiOutputVolume --check-permissions
-.build/debug/MultiOutputVolume --check-airplay
-.build/debug/MultiOutputVolume --check-hotkeys
-.build/debug/MultiOutputVolume --check-interface
-.build/debug/MultiOutputVolume --self-test-hotkeys
-.build/debug/MultiOutputVolume --observe-hotkeys 10
-.build/debug/MultiOutputVolume --hotkey-log
-```
+## Mac 验收（尚未执行）
 
-`--check-hotkeys` 输出里：
+先降低音量，逐项检查：
 
-- `accessibilityTrusted=true` 表示辅助功能权限已通过。
-- `eventTapCreated=true` 表示底层按键监听已创建。
-- `globalMonitorCreated=true` 表示全局媒体键监听兜底已创建。
-- `carbonRegisteredIDs=[10, 11, 12]` 表示 F10、F11、F12 注册成功。
+1. 系统先静音再启动 VolX，不能解除静音；重启也不能改变硬件音量。
+2. 内置扬声器、External Headphones 分别操作增减、静音、恢复；与系统设置读数及实际声音一致。
+3. 连按/长按音量键每次只处理一次；长按静音不能反复切换；普通及组合 F 键不被拦截。
+4. 在系统中切换输出、插拔耳机、睡眠唤醒后再按键，控制当前输出，不写旧设备。
+5. 多输出如需同时播放，必须由「音频 MIDI 设置」创建真实多输出设备；本工具不创建音频路由。不同 Mac 的内置扬声器与耳机接口可能互斥，不能保证同时输出。
+6. 多设备中断开/禁用某一成员，确认失败设备可见且不错误报告全部静音。
+7. 静音后退出并重开，取消静音恢复每台设备自己的原始音量。
 
-`--self-test-hotkeys` 会直接走 App 内部的热键处理链路，触发一次增大和一次减小，用来区分“热键没有收到”和“收到后音量处理失败”。物理键是否被系统送到 App，仍以真实按下 `F10/F11/F12` 后的 HUD 和日志为准。
-
-本地构建使用临时签名。更新安装版后，如果快捷键只出现系统原生提示，请在“系统设置 -> 隐私与安全性 -> 辅助功能”里把 `VolX` 关闭再打开一次；App 会自动建立独占拦截，不需要退出重开。
-
-`--doctor` 会一次性检查默认输出、多输出设备、目标设备、DDC 后端、音量写入和热键监听注册，最后输出 `DOCTOR_RESULT=PASS` 或 `DOCTOR_RESULT=FAIL`。`--check-interface` 会检查 HUD/面板尺寸、原生玻璃层和单 HUD 策略，最后输出 `INTERFACE_RESULT=PASS` 或 `INTERFACE_RESULT=FAIL`。`--check-airplay` 会扫描 5 秒并列出 VolX 实际发现的 AirPlay 设备。
-
-`--observe-hotkeys 10` 会监听 10 秒并打印原始键盘事件，最后的数字可以改成 `30`、`60`，最多 120 秒。运行后马上按 `F10/F11/F12`，如果有 `source=... action=increase/decrease/mute`，说明系统已把按键送到 App；如果 `observedRawEvents=0`，问题在 macOS 权限、键盘设置或按键没有作为 F10/F11/F12 发出。
-
-## 依赖
-
-BenQ 显示器控制依赖 `m1ddc`：
-
-```bash
-brew install m1ddc
-```
-
-如果缺少 `m1ddc`，App 仍可控制 CoreAudio 支持的设备，但不能直接写入 BenQ 显示器音量。
-
-## 权限
-
-首次运行后，如果 `F10/F11/F12` 没有反应，请到：
-
-`系统设置 -> 隐私与安全性 -> 辅助功能`
-
-允许 `VolX`。部分系统还会要求在“输入监控”里允许。
-
-首次启用 AirPlay 发现时，macOS 还会询问是否允许 VolX 查找本地网络设备。点“允许”后，无线扬声器才会显示在 VolX 面板中。
-
-## 已知限制
-
-- `BenQ MA270UP` 的 CoreAudio 音量属性不可写，本工具通过 DDC/CI 写显示器音量。
-- 这台 BenQ 的 DDC `get volume` 读回偶尔会返回 `0`，所以 App 的界面以内部统一音量为准；写入命令返回成功后通常会实际改变显示器音量。
-- BenQ 静音不用 DDC mute 命令，因为实测 `m1ddc set mute off` 会让该显示器音量读回异常；本工具用“音量设 0 / 恢复音量”模拟静音。
-- macOS 没有向第三方应用公开全局 AirPlay 输出的直接切换接口；VolX 可发现并显示远程扬声器，点击后交给系统声音设置完成真实路由。
+限制：CoreAudio 不支持或无法读回的设备会显示未确认；不支持显示器 DDC 或仅有逐通道硬件静音的设备。立即读回可能对延迟更新的驱动保守报告失败。尚无物理 Mac 验证。
 
 ## 许可证
 
-MIT License。详见 `LICENSE`。
+MIT；保留上游版权，见 `LICENSE`。
